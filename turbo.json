@@ -1,0 +1,42 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": [".env.example"],
+  "globalEnv": [
+    "NODE_ENV",
+    "APP_URL",
+    "API_URL",
+    "SUPABASE_URL",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "STELLAR_NETWORK",
+    "STELLAR_HORIZON_URL",
+    "STELLAR_SOROBAN_RPC_URL",
+    "REPUTATION_CONTRACT_ID",
+    "PALUWAGAN_CONTRACT_ID",
+    "TWILIO_ACCOUNT_SID",
+    "TWILIO_AUTH_TOKEN",
+    "TWILIO_WHATSAPP_FROM",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_MODEL",
+    "SENTRY_DSN",
+    "JWT_SECRET",
+    "WEBHOOK_SIGNING_SECRET"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {},
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "dependsOn": ["^build"]
+    }
+  }
+}

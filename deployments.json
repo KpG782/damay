@@ -1,0 +1,18 @@
+{
+  "network": "testnet",
+  "horizon": "https://horizon-testnet.stellar.org",
+  "soroban_rpc": "https://soroban-testnet.stellar.org",
+  "contracts": {
+    "reputation": {
+      "id": null,
+      "wasm_hash": null,
+      "deployed_at": null
+    },
+    "paluwagan": {
+      "id": null,
+      "wasm_hash": null,
+      "deployed_at": null
+    }
+  },
+  "note": "Populated by scripts/deploy_testnet.sh after Phase 1."
+}

@@ -1,0 +1,12 @@
+{
+  "name": "@damay/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "echo 'web dev — implemented in Phase 3'",
+    "build": "echo 'web build — implemented in Phase 3'",
+    "lint": "echo 'noop'",
+    "typecheck": "echo 'noop'",
+    "test": "echo 'noop'"
+  }
+}

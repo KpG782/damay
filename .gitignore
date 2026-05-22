@@ -1,0 +1,44 @@
+# env
+.env
+.env.local
+.env.*.local
+
+# node
+node_modules/
+.next/
+.turbo/
+dist/
+build/
+*.tsbuildinfo
+.pnpm-store/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# rust / soroban
+target/
+Cargo.lock.bak
+**/*.wasm
+
+# editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# logs
+*.log
+logs/
+
+# secrets / deploy artifacts
+secrets/
+.supabase/
+*.pem
+*.key
