@@ -150,11 +150,15 @@ class SupabaseClient:
     @staticmethod
     def _with_id(table: str, row: dict[str, Any]) -> dict[str, Any]:
         row = copy.deepcopy(row)
-        if table in {"round_members", "idempotency_keys"}:
+        now = _now_iso()
+        if table == "round_members":
+            row.setdefault("joined_at", now)
+            return row
+        if table == "idempotency_keys":
+            row.setdefault("created_at", now)
             return row
         if "id" not in row:
             row["id"] = str(uuid.uuid4())
-        now = _now_iso()
         row.setdefault("created_at", now)
         if table != "reputation_events":
             row.setdefault("updated_at", now)

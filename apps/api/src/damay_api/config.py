@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     twilio_auth_token: str = ""
     twilio_whatsapp_from: str = "whatsapp:+14155238886"
     twilio_webhook_validation: bool = True
+    # The publicly reachable base URL Twilio uses to POST webhooks. Required in
+    # production; used to recompute the HMAC signature. When unset, the router
+    # falls back to reconstructing the URL from the incoming request (works in
+    # tests + simple dev, but breaks behind any reverse proxy that rewrites
+    # host/scheme — Twilio signs the *external* URL it called, not the
+    # internal one the app server observes).
+    webhook_public_base_url: str | None = None
 
     # --- Observability ---
     sentry_dsn: str = ""

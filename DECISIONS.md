@@ -91,3 +91,17 @@ Format:
 - `messages.twilio_sid UNIQUE` is the *only* replay defence. `record_message` returns False on dedupe hit and the handler short-circuits to empty TwiML. No additional idempotency table needed for the webhook path (matches §3 of ARCHITECTURE.md).
 **Trade-off accepted:** InMemoryStore is duplicated test/demo logic that backend-engineer's Supabase store must shadow exactly; we mitigate by keeping the `WhatsAppStore` Protocol surface minimal (10 methods) and asserting on observable behaviour, not implementation.
 **Author:** whatsapp-integrator
+
+## 2026-05-23 — Phase 2 backend decisions
+**Context:** FastAPI gateway, idempotency, async Stellar queue, mock-mode fallback.
+**Decision:**
+- Single `SupabaseClient` with in-memory fallback when `SUPABASE_URL`/service key are unset, so tests + dev + mock-mode demos boot without a real DB. Same mock toggle applies to Twilio + Stellar.
+- Idempotency middleware uses an in-process `InMemoryIdempotencyStore` for now; production swap to a `idempotency_keys`-backed store is one class change. ARCHITECTURE.md §2.1 24h TTL is honoured by the table schema; in-memory store ignores TTL (acceptable for hackathon).
+- Stellar contract submission is *not* implemented inline — `StellarClient._submit_contract` returns a synthetic `tx_hash` in mock mode and a placeholder path otherwise. Production submission is intended to shell out to `stellar` CLI from the worker host (per `contracts/README.md` example). Documented in `clients/stellar.py`.
+- Auth bypass token `test-service-token` is honoured only when `SUPABASE_JWT_SECRET` is unset — dev-only escape hatch for the WhatsApp state machine to call `/v1/contributions` without a JWT.
+- SlowAPI in-memory storage is reset between tests via `limiter.reset()` in autouse fixture, otherwise the rate-limit bucket leaks across tests.
+- 8 pre-existing whatsapp-integrator webhook tests fail on Twilio signature verification (their URL reconstruction expects host that differs from `http://test`). Outside backend-engineer scope; left untouched.
+- Backend tests share `tests/conftest.py` with the whatsapp-integrator's fixtures; `app`/`client` heuristically switch between full-app and webhook-only-app based on whether the test references the `store` fixture.
+**Path not taken:** Live supabase-py async client (uses `realtime` + `gotrue` which pull extra deps). PostgREST over httpx is enough for service-role reads/writes.
+**Trade-off accepted:** In-memory idempotency store loses replay protection across worker restarts — fine for hackathon, swap before prod.
+**Author:** backend-engineer

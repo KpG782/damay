@@ -12,6 +12,8 @@ from typing import Literal
 
 from fastapi import APIRouter, Request, Response, status
 
+from damay_api.middleware.rate_limit import PUBLIC_LIMIT, limiter
+
 from damay_api import __version__
 from damay_api.deps import SettingsDep, StellarDep, SupabaseDep, TwilioDep
 from damay_api.middleware.request_id import current_request_id
@@ -33,13 +35,14 @@ async def _with_timeout(coro, default: CheckStatus = "fail", timeout: float = 1.
 
 
 @router.get("/healthz", response_model=HealthResponse)
+@limiter.limit(PUBLIC_LIMIT)
 async def healthz(
+    request: Request,
     response: Response,
     settings: SettingsDep,
     supabase: SupabaseDep,
     stellar: StellarDep,
     twilio: TwilioDep,
-    request: Request,
 ) -> HealthResponse:
     db_task = _with_timeout(supabase.ping())
     if settings.stellar_mock_mode:

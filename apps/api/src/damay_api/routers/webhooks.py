@@ -49,6 +49,10 @@ logger = logging.getLogger(__name__)
 # (Confirmation comment for the backend-engineer who wires include_router.)
 router = APIRouter()
 
+# Module-level flag so the "fallback URL reconstruction" warning only fires
+# once per process — noisy logs train operators to ignore them.
+_warned_about_missing_public_base_url = False
+
 
 # ---------------------------------------------------------------------------
 # Settings
@@ -67,12 +71,18 @@ class WebhookSettings:
     twilio_webhook_validation: bool = True
     node_env: str = "development"
     feature_demo_mode: bool = True
+    # The publicly reachable base URL Twilio uses to POST webhooks (no path),
+    # e.g. `https://api.damay.kenbuilds.tech`. Required for correct signature
+    # verification behind any reverse proxy. When `None`, the router falls
+    # back to `str(request.url)` and warns once.
+    webhook_public_base_url: str | None = None
     stellar_expert_url_template: str = (
         "https://stellar.expert/explorer/testnet/tx/{tx_hash}"
     )
 
     @classmethod
     def from_env(cls) -> "WebhookSettings":
+        raw_base = os.environ.get("WEBHOOK_PUBLIC_BASE_URL", "").strip()
         return cls(
             twilio_auth_token=os.environ.get("TWILIO_AUTH_TOKEN", ""),
             twilio_webhook_validation=(
@@ -82,6 +92,7 @@ class WebhookSettings:
             feature_demo_mode=(
                 os.environ.get("FEATURE_DEMO_MODE", "true").lower() == "true"
             ),
+            webhook_public_base_url=raw_base or None,
         )
 
     @property
@@ -142,18 +153,38 @@ def _redact_body(body: str | None, n: int = 24) -> str:
     return body[:n] + ("…" if len(body) > n else "")
 
 
-def _abs_url(request: Request) -> str:
+def _signing_url(request: Request, settings: WebhookSettings) -> str:
     """Reconstruct the URL Twilio used to sign the request.
 
-    Honours `X-Forwarded-Proto` and `X-Forwarded-Host` so signature verify
-    still works when the API sits behind a TLS-terminating reverse proxy
-    (EasyPanel / Cloudflare).
+    Twilio signs the *public* URL it POSTed to. When the API sits behind a
+    reverse proxy (EasyPanel, Cloudflare, an nginx ingress, or a test ASGI
+    client) the URL the app server observes (``request.url``) is the
+    *internal* URL — `http://api:8000/...` or `http://test/...` — which
+    does not match what Twilio signed, and the HMAC will fail.
+
+    The fix: take the public base URL from configuration and join it with
+    the request path + query. This is production-correct; the fallback to
+    `str(request.url)` exists only so local dev keeps working before
+    `WEBHOOK_PUBLIC_BASE_URL` is set, and emits a one-time warning.
     """
-    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
-    host = request.headers.get("x-forwarded-host") or request.url.netloc
     path = request.url.path
     query = ("?" + request.url.query) if request.url.query else ""
-    return f"{proto}://{host}{path}{query}"
+
+    if settings.webhook_public_base_url:
+        base = settings.webhook_public_base_url.rstrip("/")
+        return f"{base}{path}{query}"
+
+    global _warned_about_missing_public_base_url
+    if not _warned_about_missing_public_base_url:
+        _warned_about_missing_public_base_url = True
+        logger.warning(
+            "webhook_public_base_url_unset "
+            "Falling back to request.url for Twilio signature verification. "
+            "This breaks behind any reverse proxy. "
+            "Set WEBHOOK_PUBLIC_BASE_URL to the public URL Twilio POSTs to "
+            "(e.g. https://api.damay.example.com)."
+        )
+    return str(request.url)
 
 
 async def _process_inbound(
@@ -320,7 +351,7 @@ async def twilio_webhook(
     # ---- Signature verify --------------------------------------------------
     if settings.twilio_webhook_validation:
         signature = request.headers.get("x-twilio-signature")
-        url = _abs_url(request)
+        url = _signing_url(request, settings)
         if not verify_twilio_signature(
             settings.twilio_auth_token,
             url,
@@ -375,6 +406,11 @@ async def simulate_message(
 
     Returns the TwiML response inline so the dashboard can show the reply.
     Returns 404 when dev endpoints are disabled (prod build w/o demo mode).
+
+    This path *intentionally bypasses* `verify_twilio_signature` — the payload
+    is synthesized locally, there is no Twilio signature to verify, and the
+    endpoint is already gated behind `dev_endpoints_enabled`. Do not
+    re-introduce signature checks here.
     """
     if not settings.dev_endpoints_enabled:
         # Mirror FastAPI's standard 404 shape so it's indistinguishable from
