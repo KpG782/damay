@@ -80,3 +80,14 @@ Format:
 **Path not taken:** Proxying through a residential network (out of scope for hackathon ops); ephemeral mainnet deploy (cost + no reason).
 **Trade-off accepted:** Live IDs must be populated by Ken running `bash scripts/deploy_testnet.sh` from a machine with public network access before the demo. Idempotent, ~30s wall time. Verified clean WASM + idempotent script reduces the residual risk to "one bash command on demo day."
 **Author:** orchestrator
+
+## 2026-05-23 — Phase 2 WhatsApp router: store Protocol + pure state machine + no schema diff
+**Context:** The whatsapp-integrator's slice landed alongside the backend-engineer's FastAPI shell. Two coordination questions came up: (a) how to write router code before backend's Supabase client exists, and (b) whether to add a new `outbound_messages` / `dead_letter_messages` table for failed Twilio outbound retries.
+**Decision:**
+- All DB access in `services/whatsapp.py` and `routers/webhooks.py` goes through a `WhatsAppStore` Protocol with an `InMemoryStore` reference impl. Backend-engineer ships the Supabase-backed implementation and wires it via `app.dependency_overrides[webhooks.get_store]` in `main.py`. No hard import of any unfinished backend client.
+- The state machine is implemented as a *pure* class (`StateMachine.transition(state, event, ctx) -> TransitionResult`) returning a list of side-effect dicts that the router applies. State is derived per-message from `round_members` + `contributions`; nothing is cached.
+- Outbound retry on payout notifications uses an in-process Tenacity-style helper (`send_with_retry`) with a `dead_letter_sink` list parameter. **No new schema table was added.** When backend-engineer needs persistent dead-letters they should reuse the existing `stellar_jobs` envelope (add a `notify_member` `stellar_job_type` enum value) rather than introduce a parallel queue. Logged here so we don't drift.
+- `/dev/simulate-message` is mounted unconditionally on the router but guarded per-request by `WebhookSettings.dev_endpoints_enabled` (true iff `NODE_ENV != production` OR `FEATURE_DEMO_MODE=true`); disabled paths return a clean 404 indistinguishable from "route not present."
+- `messages.twilio_sid UNIQUE` is the *only* replay defence. `record_message` returns False on dedupe hit and the handler short-circuits to empty TwiML. No additional idempotency table needed for the webhook path (matches §3 of ARCHITECTURE.md).
+**Trade-off accepted:** InMemoryStore is duplicated test/demo logic that backend-engineer's Supabase store must shadow exactly; we mitigate by keeping the `WhatsAppStore` Protocol surface minimal (10 methods) and asserting on observable behaviour, not implementation.
+**Author:** whatsapp-integrator
