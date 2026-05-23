@@ -69,3 +69,14 @@ Format:
 - soroban-sdk 26.x (rejected: not yet broadly indexed by stellar.expert as of judging date; 22.x renders all event topics correctly in the explorer).
 **Trade-off accepted:** Per-round contract deploys cost a few XLM each in mainnet rent — fine for hackathon (testnet) and still affordable for v1 mainnet (~$0.01/round at current XLM price).
 **Author:** soroban-engineer
+
+## 2026-05-23 — Phase 1 DoD gap: live testnet deploy blocked by sandbox network policy
+**Context:** Orchestrator attempted to satisfy the Phase 1 DoD (§12: "contracts deployed to testnet, IDs in `deployments.json`") by installing stellar-cli 22.8.1 and running `scripts/deploy_testnet.sh`. WASM built cleanly to wasm32v1-none, hashes recorded. Soroban RPC, Horizon, and friendbot endpoints all return HTTP 403 from this environment's egress proxy, so deploy + init cannot complete here.
+**Decision:**
+- WASM hashes (`reputation: 9963…2b9c`, `paluwagan: 9198…7b6f`) and deployer account written to `deployments.json` with `status=PENDING_DEPLOY`.
+- `scripts/deploy_testnet.sh` patched to autodetect `wasm32v1-none` (stellar-cli 22.x default) vs the older `wasm32-unknown-unknown` path — fixes a real bug, not just a workaround.
+- `.gitignore` updated to exclude `.stellar/` identity dir created by the CLI during the attempt.
+- Backend (Phase 2) will be wired to read `REPUTATION_CONTRACT_ID` and `PALUWAGAN_CONTRACT_ID` from env (already in `.env.example`); contract clients will graceful-degrade to mock mode when IDs are unset so dev + tests run without on-chain deps.
+**Path not taken:** Proxying through a residential network (out of scope for hackathon ops); ephemeral mainnet deploy (cost + no reason).
+**Trade-off accepted:** Live IDs must be populated by Ken running `bash scripts/deploy_testnet.sh` from a machine with public network access before the demo. Idempotent, ~30s wall time. Verified clean WASM + idempotent script reduces the residual risk to "one bash command on demo day."
+**Author:** orchestrator

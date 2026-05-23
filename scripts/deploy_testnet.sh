@@ -77,8 +77,14 @@ log "Deployer: ${DEPLOYER_ADDR}"
 log "Building contracts (release)..."
 (cd "${CONTRACTS_DIR}" && stellar contract build)
 
-REPUTATION_WASM="${CONTRACTS_DIR}/target/wasm32-unknown-unknown/release/damay_reputation.wasm"
-PALUWAGAN_WASM="${CONTRACTS_DIR}/target/wasm32-unknown-unknown/release/damay_paluwagan.wasm"
+# Soroban CLI 22.x emits to wasm32v1-none; older CLIs to wasm32-unknown-unknown.
+if [ -d "${CONTRACTS_DIR}/target/wasm32v1-none/release" ]; then
+  WASM_TARGET_DIR="${CONTRACTS_DIR}/target/wasm32v1-none/release"
+else
+  WASM_TARGET_DIR="${CONTRACTS_DIR}/target/wasm32-unknown-unknown/release"
+fi
+REPUTATION_WASM="${WASM_TARGET_DIR}/damay_reputation.wasm"
+PALUWAGAN_WASM="${WASM_TARGET_DIR}/damay_paluwagan.wasm"
 
 for f in "${REPUTATION_WASM}" "${PALUWAGAN_WASM}"; do
   if [ ! -f "${f}" ]; then

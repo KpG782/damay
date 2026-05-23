@@ -26,6 +26,7 @@ venv/
 target/
 Cargo.lock.bak
 **/*.wasm
+.stellar/
 
 # editor
 .vscode/
