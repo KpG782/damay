@@ -1,0 +1,23 @@
+[package]
+name = "damay-contract-fuzz"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+description = "DAMAY contract fuzz / property tests (QA Phase 5)."
+publish = false
+
+[lib]
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+damay-reputation = { path = "../reputation" }
+damay-paluwagan = { path = "../paluwagan" }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
+damay-reputation = { path = "../reputation", features = [] }
+damay-paluwagan = { path = "../paluwagan", features = [] }
