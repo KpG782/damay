@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "reputation",
     "paluwagan",
+    "tests",
 ]
 
 [workspace.package]

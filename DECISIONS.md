@@ -146,3 +146,17 @@ Format:
 **Path not taken:** Faking a successful curl against the prod domain from sandbox (would corrupt the DoD signal); embedding EasyPanel API token in repo to demo the call (security violation).
 **Trade-off accepted:** Phase 4 DoD ("prod URL responds, Twilio webhook hits prod, Stellar tx visible on Stellar Expert") cannot close from this sandbox. Residual = §0 + §1 + §3 + §5 + §6 of `EASYPANEL_DEPLOY.md` must be run from Ken's workstation. Every subsequent push to `main` deploys automatically once secrets are set.
 **Author:** devops (Phase 4)
+
+## 2026-05-23 — Phase 5 QA: e2e workspace + top-level fuzz crate
+**Context:** QA needed Playwright e2e suite and 500-iter fuzz per contract.
+**Decision:** Added `e2e/` as a third pnpm workspace path (alongside `apps/*` + `packages/*`) and a new `contracts/tests/` cargo workspace member (`damay-contract-fuzz`) holding `tests/fuzz.rs`.
+**Path not taken:** Putting fuzz directly in each contract's `src/test.rs` would have kept testutils variant matching (`Err(Ok(Error::X))`), but it would tangle property-test loops with unit tests and force per-crate `cargo test` invocations. A top-level fuzz crate gives a single `cargo test --release -p damay-contract-fuzz` invocation; the only cost is coarser error matching from outside the contract crate (acceptable — variant-level coverage already lives in the per-crate unit tests).
+**Trade-off accepted:** Outside-the-crate `try_*` collapses contract errors into a generic outer `Err`, so fuzz invariants assert success preconditions (`ok(&r) → initialized && weight > 0`) instead of matching exact `Error::ZeroWeight` etc.
+**Author:** qa-engineer
+
+## 2026-05-23 — Phase 5 QA: auth e2e is demo-mode aware
+**Context:** Brief asked for an RLS check ("non-org user cannot read other org's rounds"). The web app is intentionally in demo mode for the hackathon (Supabase env unset → `getSession` returns a deterministic demo organizer), so a `/dashboard → /login` redirect never fires in this stack.
+**Decision:** `e2e/tests/auth.spec.ts` documents the demo-mode bypass and replaces the redirect assertion with two API-layer guards: (1) `GET /v1/rounds` with no JWT must 401/403, (2) `GET /v1/rounds` with a JWT for an unknown organizer must not leak any seeded round IDs.
+**Path not taken:** Booting the e2e stack with Supabase configured + a seeded organizers row would have exercised the real redirect, but it requires standing up Supabase in CI (heavy, time-blowing). The split keeps the hackathon demo mode reachable while still proving the API-side guarantee.
+**Trade-off accepted:** Web-layer redirect-to-login is unit/integration-tested elsewhere; e2e asserts the boundary behaviour at the API.
+**Author:** qa-engineer

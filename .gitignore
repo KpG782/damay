@@ -27,6 +27,12 @@ target/
 Cargo.lock.bak
 **/*.wasm
 .stellar/
+# Fuzz harness auto-regenerates snapshots on every run (500+ per test).
+# Keep deterministic-unit-test snapshots, exclude the fuzz crate's.
+contracts/tests/test_snapshots/
+# Playwright/Vitest test artifacts.
+e2e/test-results/
+e2e/playwright-report/
 
 # editor
 .vscode/

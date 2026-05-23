@@ -16,7 +16,7 @@ test.describe("DAMAY demo happy path", () => {
     await expect(page).toHaveTitle(/DAMAY|Paluwagan/i);
     // Hero headline contains "Paluwagan" (per hero copy).
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/Paluwagan/i);
-    const demoCta = page.getByRole("link", { name: /Try the demo/i });
+    const demoCta = page.getByRole("link", { name: /Try the demo/i }).first();
     await expect(demoCta).toBeVisible();
 
     // 2. Dashboard shows demo organizer "Carmela" + at least one round card.

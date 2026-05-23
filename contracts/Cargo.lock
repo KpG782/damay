@@ -336,6 +336,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "damay-contract-fuzz"
+version = "0.1.0"
+dependencies = [
+ "damay-paluwagan",
+ "damay-reputation",
+ "soroban-sdk",
+]
+
+[[package]]
 name = "damay-paluwagan"
 version = "0.1.0"
 dependencies = [

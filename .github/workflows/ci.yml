@@ -95,6 +95,7 @@ jobs:
           workspaces: |
             contracts/reputation
             contracts/paluwagan
+            contracts
 
       - name: cargo test — reputation
         run: |
@@ -112,7 +113,73 @@ jobs:
             echo "contracts/paluwagan/Cargo.toml missing — skipping."
           fi
 
+      - name: cargo test — fuzz (500 iters per contract)
+        run: |
+          if [ -f contracts/tests/Cargo.toml ]; then
+            cd contracts && cargo test --release -p damay-contract-fuzz --locked || \
+              cargo test --release -p damay-contract-fuzz
+          else
+            echo "contracts/tests/Cargo.toml missing — skipping fuzz."
+          fi
+
   # ---------------------------------------------------------------------------
+  # E2E: Playwright tests against a freshly built web+api stack.
+  # Gated to push-to-main OR a commit message containing `[e2e]` so PRs stay
+  # fast by default. Override locally with `cd e2e && pnpm test`.
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    needs: [lint-typecheck, api-tests]
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' ||
+      contains(github.event.head_commit.message, '[e2e]') ||
+      contains(github.event.pull_request.title, '[e2e]')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.5.11"
+          enable-cache: true
+          cache-dependency-glob: "apps/api/uv.lock"
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile || pnpm install
+
+      - name: uv sync (api)
+        run: cd apps/api && (uv sync --frozen || uv sync)
+
+      - name: Build web
+        run: pnpm --filter @damay/web build
+
+      - name: Install Playwright (chromium)
+        run: cd e2e && pnpm exec playwright install --with-deps chromium
+
+      - name: Run Playwright
+        run: cd e2e && pnpm exec playwright test --reporter=line
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          retention-days: 7
   gitleaks:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
