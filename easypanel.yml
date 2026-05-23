@@ -1,0 +1,151 @@
+# DAMAY — EasyPanel project manifest
+# Phase 0 scaffold. TODO(phase-4): apply via EasyPanel API / CLI once secrets are loaded.
+# Supabase Postgres is external — no internal DB service; SUPABASE_DB_URL points at it.
+
+project: damay
+
+services:
+  # ---------- Web (Next.js 15 PWA) ----------
+  - type: app
+    name: web
+    source:
+      type: dockerfile
+      path: apps/web/Dockerfile
+      context: .
+    deploy:
+      replicas: 1
+      command: node apps/web/server.js
+    ports:
+      - published: 3000
+        target: 3000
+        protocol: http
+    domains:
+      - host: damay.kenbuilds.tech            # TODO(phase-4): confirm DNS A/CNAME at Cloudflare
+        port: 3000
+        https: true
+        path: /
+    healthCheck:
+      path: /api/health
+      port: 3000
+      interval: 30
+      timeout: 5
+      retries: 3
+    resources:
+      memoryReservation: 256
+      memoryLimit: 768
+    env:
+      # Public/runtime env. Values sourced from EasyPanel project secrets.
+      - key: NODE_ENV
+        value: production
+      - key: APP_URL
+        value: https://damay.kenbuilds.tech
+      - key: API_URL
+        value: https://api.damay.kenbuilds.tech
+      - key: SUPABASE_URL
+        fromSecret: SUPABASE_URL
+      - key: SUPABASE_ANON_KEY
+        fromSecret: SUPABASE_ANON_KEY
+      - key: SENTRY_DSN
+        fromSecret: SENTRY_DSN_WEB           # TODO(phase-4): create Sentry project, populate
+      - key: LOG_LEVEL
+        value: info
+      - key: FEATURE_LATE_NIGHT_LEND
+        value: "false"
+      - key: FEATURE_REAL_PAYMENTS
+        value: "false"
+      - key: FEATURE_DEMO_MODE
+        value: "true"
+
+  # ---------- API (FastAPI) ----------
+  - type: app
+    name: api
+    source:
+      type: dockerfile
+      path: apps/api/Dockerfile
+      context: .
+    deploy:
+      replicas: 1
+    ports:
+      - published: 8000
+        target: 8000
+        protocol: http
+    domains:
+      - host: api.damay.kenbuilds.tech       # TODO(phase-4): confirm DNS + point Twilio webhook here
+        port: 8000
+        https: true
+        path: /
+    healthCheck:
+      path: /healthz
+      port: 8000
+      interval: 30
+      timeout: 5
+      retries: 3
+    resources:
+      memoryReservation: 384
+      memoryLimit: 1024
+    env:
+      - key: NODE_ENV
+        value: production
+      - key: APP_URL
+        value: https://damay.kenbuilds.tech
+      - key: API_URL
+        value: https://api.damay.kenbuilds.tech
+      # --- Supabase ---
+      - key: SUPABASE_URL
+        fromSecret: SUPABASE_URL
+      - key: SUPABASE_ANON_KEY
+        fromSecret: SUPABASE_ANON_KEY
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        fromSecret: SUPABASE_SERVICE_ROLE_KEY
+      - key: SUPABASE_DB_URL
+        fromSecret: SUPABASE_DB_URL
+      # --- Stellar ---
+      - key: STELLAR_NETWORK
+        value: testnet
+      - key: STELLAR_HORIZON_URL
+        value: https://horizon-testnet.stellar.org
+      - key: STELLAR_SOROBAN_RPC_URL
+        value: https://soroban-testnet.stellar.org
+      - key: STELLAR_ISSUER_SECRET
+        fromSecret: STELLAR_ISSUER_SECRET
+      - key: REPUTATION_CONTRACT_ID
+        fromSecret: REPUTATION_CONTRACT_ID   # populated after Phase 1 testnet deploy
+      - key: PALUWAGAN_CONTRACT_ID
+        fromSecret: PALUWAGAN_CONTRACT_ID
+      # --- Twilio ---
+      - key: TWILIO_ACCOUNT_SID
+        fromSecret: TWILIO_ACCOUNT_SID
+      - key: TWILIO_AUTH_TOKEN
+        fromSecret: TWILIO_AUTH_TOKEN
+      - key: TWILIO_WHATSAPP_FROM
+        fromSecret: TWILIO_WHATSAPP_FROM
+      - key: TWILIO_WEBHOOK_VALIDATION
+        value: "true"
+      # --- Claude ---
+      - key: ANTHROPIC_API_KEY
+        fromSecret: ANTHROPIC_API_KEY
+      - key: ANTHROPIC_MODEL
+        value: claude-opus-4-7
+      # --- Observability ---
+      - key: SENTRY_DSN
+        fromSecret: SENTRY_DSN_API           # TODO(phase-4): create Sentry project
+      - key: LOG_LEVEL
+        value: info
+      # --- Security ---
+      - key: JWT_SECRET
+        fromSecret: JWT_SECRET
+      - key: WEBHOOK_SIGNING_SECRET
+        fromSecret: WEBHOOK_SIGNING_SECRET
+      # --- Feature flags ---
+      - key: FEATURE_LATE_NIGHT_LEND
+        value: "false"
+      - key: FEATURE_REAL_PAYMENTS
+        value: "false"
+      - key: FEATURE_DEMO_MODE
+        value: "true"
+
+# Notes:
+# - Supabase Postgres is external (no internal `databases:` block needed).
+# - TODO(phase-4): After first deploy, set Twilio sandbox webhook to
+#   https://api.damay.kenbuilds.tech/webhooks/twilio and verify signature flow.
+# - TODO(phase-4): Wire Sentry source map upload in CI build step.

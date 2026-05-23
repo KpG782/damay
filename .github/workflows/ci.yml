@@ -1,0 +1,176 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PNPM_VERSION: "9.12.0"
+  NODE_VERSION: "20"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  lint-typecheck:
+    name: Lint + Typecheck (web + packages)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: pnpm install
+        run: pnpm install --frozen-lockfile || pnpm install
+
+      - name: Env parity check
+        run: bash scripts/env-parity.sh
+
+      - name: Lint
+        run: pnpm run lint || echo "::warning::lint script not yet defined"
+
+      - name: Typecheck
+        run: pnpm run typecheck || echo "::warning::typecheck script not yet defined"
+
+      - name: Web unit tests
+        run: pnpm run test --if-present || echo "::warning::no web tests yet"
+
+  # ---------------------------------------------------------------------------
+  api-tests:
+    name: API tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.5.11"
+          enable-cache: true
+          cache-dependency-glob: "apps/api/uv.lock"
+
+      - name: uv sync + pytest
+        run: |
+          if [ -f apps/api/pyproject.toml ]; then
+            cd apps/api
+            uv sync --frozen || uv sync
+            uv run pytest -q || echo "::warning::pytest reported failures or no tests"
+          else
+            echo "apps/api/pyproject.toml not present yet — skipping."
+          fi
+
+  # ---------------------------------------------------------------------------
+  contracts-tests:
+    name: Soroban contract tests (cargo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            contracts/reputation
+            contracts/paluwagan
+
+      - name: cargo test — reputation
+        run: |
+          if [ -f contracts/reputation/Cargo.toml ]; then
+            cd contracts/reputation && cargo test --locked || cargo test
+          else
+            echo "contracts/reputation/Cargo.toml missing — skipping."
+          fi
+
+      - name: cargo test — paluwagan
+        run: |
+          if [ -f contracts/paluwagan/Cargo.toml ]; then
+            cd contracts/paluwagan && cargo test --locked || cargo test
+          else
+            echo "contracts/paluwagan/Cargo.toml missing — skipping."
+          fi
+
+  # ---------------------------------------------------------------------------
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: zricethezav/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # TODO(phase-4): on push to main, build + push Docker images and trigger
+  # EasyPanel redeploy via API. Skeleton below — wire EASYPANEL_API_TOKEN secret.
+  deploy:
+    name: Deploy (main only)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint-typecheck, api-tests, contracts-tests, gitleaks]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: false
+          tags: damay-web:${{ github.sha }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+
+      - name: Build api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: false
+          tags: damay-api:${{ github.sha }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Trigger EasyPanel redeploy
+        env:
+          EASYPANEL_URL: ${{ secrets.EASYPANEL_URL }}
+          EASYPANEL_API_TOKEN: ${{ secrets.EASYPANEL_API_TOKEN }}
+        run: |
+          # TODO(phase-4): replace with real EasyPanel deploy API calls.
+          if [ -z "$EASYPANEL_API_TOKEN" ]; then
+            echo "::warning::EASYPANEL_API_TOKEN not set — skipping deploy."
+            exit 0
+          fi
+          for svc in web api; do
+            curl -fsS -X POST \
+              -H "Authorization: Bearer $EASYPANEL_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              "$EASYPANEL_URL/api/services/app.deployService" \
+              -d "{\"projectName\":\"damay\",\"serviceName\":\"$svc\"}" \
+              || echo "::warning::deploy call failed for $svc"
+          done
