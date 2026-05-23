@@ -14,6 +14,8 @@ env:
   PNPM_VERSION: "9.12.0"
   NODE_VERSION: "20"
   PYTHON_VERSION: "3.12"
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: ${{ github.repository_owner }}
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -37,7 +39,7 @@ jobs:
         run: pnpm install --frozen-lockfile || pnpm install
 
       - name: Env parity check
-        run: bash scripts/env-parity.sh
+        run: bash scripts/env-parity.sh --ci
 
       - name: Lint
         run: pnpm run lint || echo "::warning::lint script not yet defined"
@@ -123,54 +125,105 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ---------------------------------------------------------------------------
-  # TODO(phase-4): on push to main, build + push Docker images and trigger
-  # EasyPanel redeploy via API. Skeleton below — wire EASYPANEL_API_TOKEN secret.
+  # Deploy: build + push images to GHCR, then trigger EasyPanel redeploy.
+  # Gated by EASYPANEL_API_TOKEN — if the secret isn't set, the job no-ops with
+  # a warning (safe for forks / PRs).
   deploy:
     name: Deploy (main only)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [lint-typecheck, api-tests, contracts-tests, gitleaks]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check deploy secrets
+        id: gate
+        run: |
+          if [ -z "${{ secrets.EASYPANEL_API_TOKEN }}" ]; then
+            echo "::warning::EASYPANEL_API_TOKEN not set — skipping deploy."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Docker Buildx
+        if: steps.gate.outputs.skip != 'true'
         uses: docker/setup-buildx-action@v3
 
-      - name: Build web image
+      - name: Log in to GHCR
+        if: steps.gate.outputs.skip != 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build + push web image
+        if: steps.gate.outputs.skip != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/web/Dockerfile
-          push: false
-          tags: damay-web:${{ github.sha }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/damay-web:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/damay-web:latest
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
-      - name: Build api image
+      - name: Build + push api image
+        if: steps.gate.outputs.skip != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: apps/api/Dockerfile
-          push: false
-          tags: damay-api:${{ github.sha }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/damay-api:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/damay-api:latest
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
 
       - name: Trigger EasyPanel redeploy
+        if: steps.gate.outputs.skip != 'true'
         env:
           EASYPANEL_URL: ${{ secrets.EASYPANEL_URL }}
           EASYPANEL_API_TOKEN: ${{ secrets.EASYPANEL_API_TOKEN }}
+          EASYPANEL_PROJECT: ${{ secrets.EASYPANEL_PROJECT }}
+          IMAGE_SHA: ${{ github.sha }}
         run: |
-          # TODO(phase-4): replace with real EasyPanel deploy API calls.
-          if [ -z "$EASYPANEL_API_TOKEN" ]; then
-            echo "::warning::EASYPANEL_API_TOKEN not set — skipping deploy."
-            exit 0
-          fi
+          set -euo pipefail
+          PROJECT="${EASYPANEL_PROJECT:-damay}"
+
           for svc in web api; do
+            echo "::group::Update + deploy $svc"
+
+            # 1. Pin the new image tag (uses the per-SHA tag for reproducibility).
+            curl -fsS -X POST \
+              -H "Authorization: Bearer $EASYPANEL_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              "$EASYPANEL_URL/api/services/app.updateSourceImage" \
+              -d "{\"projectName\":\"$PROJECT\",\"serviceName\":\"$svc\",\"image\":\"${REGISTRY}/${IMAGE_OWNER}/damay-${svc}:${IMAGE_SHA}\"}" \
+              || echo "::warning::updateSourceImage failed for $svc (continuing)"
+
+            # 2. Trigger redeploy.
             curl -fsS -X POST \
               -H "Authorization: Bearer $EASYPANEL_API_TOKEN" \
               -H "Content-Type: application/json" \
               "$EASYPANEL_URL/api/services/app.deployService" \
-              -d "{\"projectName\":\"damay\",\"serviceName\":\"$svc\"}" \
-              || echo "::warning::deploy call failed for $svc"
+              -d "{\"projectName\":\"$PROJECT\",\"serviceName\":\"$svc\"}" \
+              || { echo "::error::deployService failed for $svc"; exit 1; }
+
+            echo "::endgroup::"
           done
+
+      - name: Post-deploy smoke (best-effort)
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          set +e
+          sleep 25
+          curl -fsS -o /dev/null -w "web: %{http_code}\n"  https://damay.kenbuilds.tech/
+          curl -fsS -o /dev/null -w "api: %{http_code}\n"  https://api.damay.kenbuilds.tech/healthz

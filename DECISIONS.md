@@ -130,3 +130,19 @@ Format:
 - `src/components/brand/ServiceWorker.tsx` only registers `/sw.js` in production builds; dev HMR is unaffected.
 **Trade-off accepted:** Demo-mode helper code stays in the production bundle (~1 KB). Worth it for hackathon resilience.
 **Author:** frontend-engineer (Phase 3)
+
+## 2026-05-23 — Phase 4 deploy: runbook over live deploy
+**Context:** Phase 4 brief requires live URLs on `damay.kenbuilds.tech` and `api.damay.kenbuilds.tech`. Sandbox reachability probe:
+- github.com → 200, ghcr.io → 301 (reachable)
+- registry-1.docker.io → 404, easypanel.io → 403, api.easypanel.io → 403 (no auth path)
+- docker CLI present but **dockerd not running** (`/var/run/docker.sock` missing)
+- `*.stellar.org` already known blocked (see prior entry; `deployments.json` still `PENDING_DEPLOY`)
+**Decision:** Path B — ship a deterministic runbook instead of faking a deploy.
+- `EASYPANEL_DEPLOY.md`: 11-step runbook from zero to live, with the exact env-var table, Twilio CLI command, Sentry steps, post-deploy curls, and rollback procedure.
+- `docker-compose.yml`: local mirror of prod shape (api + web only, Supabase external).
+- `scripts/preflight.sh`: gate before deploy — env-parity + docker builds + size budgets (300/200 MB) + boot + healthcheck poll. Exit 0 only on full green.
+- `.github/workflows/ci.yml` `deploy` job rewritten to build+push to GHCR with per-SHA + latest tags and call EasyPanel `app.updateSourceImage` + `app.deployService` for both services. Gated by `EASYPANEL_API_TOKEN` so PRs / fork builds no-op cleanly. Post-deploy smoke step curls both prod URLs.
+- Dockerfiles verified: web `output: 'standalone'` confirmed in `apps/web/next.config.mjs:25`; api uvicorn target `main:app` matches `apps/api/main.py:217` (`app = create_app()`).
+**Path not taken:** Faking a successful curl against the prod domain from sandbox (would corrupt the DoD signal); embedding EasyPanel API token in repo to demo the call (security violation).
+**Trade-off accepted:** Phase 4 DoD ("prod URL responds, Twilio webhook hits prod, Stellar tx visible on Stellar Expert") cannot close from this sandbox. Residual = §0 + §1 + §3 + §5 + §6 of `EASYPANEL_DEPLOY.md` must be run from Ken's workstation. Every subsequent push to `main` deploys automatically once secrets are set.
+**Author:** devops (Phase 4)
