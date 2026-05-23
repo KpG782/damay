@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * DAMAY design tokens as CSS variables. Source of truth: packages/ui/tokens.ts.
+ * Hex values are converted to HSL components so Tailwind's `hsl(var(--x))`
+ * pattern works (with opacity modifiers).
+ *
+ * tokens.ts hex -> HSL components below:
+ * #FAF7F2 -> 36 36% 97%   (bg.base)
+ * #F2EDE4 -> 37 33% 92%   (bg.subtle)
+ * #FFFFFF -> 0 0% 100%    (bg.raised)
+ * #1A1614 -> 20 12% 9%    (fg.base)
+ * #5C544E -> 24 9% 33%    (fg.muted)
+ * #8A8078 -> 24 7% 51%    (fg.subtle)
+ * #C2410C -> 21 88% 41%   (brand.base)
+ * #9A330A -> 21 88% 32%   (brand.hover)
+ * #FED7AA -> 32 98% 83%   (brand.subtle)
+ * #0F766E -> 175 77% 26%  (accent.base)
+ * #0D5F58 -> 174 76% 21%  (accent.hover)
+ * #15803D -> 142 71% 29%  (success)
+ * #B45309 -> 28 92% 37%   (warning)
+ * #B91C1C -> 0 74% 42%    (danger)
+ * #E5DCC8 -> 41 41% 84%   (border.base)
+ * #EFE8D8 -> 42 45% 89%   (border.subtle)
+ */
+
+@layer base {
+  :root {
+    --bg-base: 36 36% 97%;
+    --bg-subtle: 37 33% 92%;
+    --bg-raised: 0 0% 100%;
+
+    --fg-base: 20 12% 9%;
+    --fg-muted: 24 9% 33%;
+    --fg-subtle: 24 7% 51%;
+
+    --brand-base: 21 88% 41%;
+    --brand-hover: 21 88% 32%;
+    --brand-subtle: 32 98% 83%;
+
+    --accent-base: 175 77% 26%;
+    --accent-hover: 174 76% 21%;
+
+    --success: 142 71% 29%;
+    --warning: 28 92% 37%;
+    --danger: 0 74% 42%;
+
+    --border-base: 41 41% 84%;
+    --border-subtle: 42 45% 89%;
+
+    --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    --radius: 8px;
+  }
+
+  * {
+    @apply border-border-subtle;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-bg-base text-fg-base font-sans antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  h1, h2 {
+    @apply font-display tracking-tight;
+  }
+
+  h3, h4, h5, h6 {
+    @apply font-sans;
+  }
+
+  /* Mandatory focus ring on every interactive element. */
+  :where(button, a, [role="button"], input, select, textarea):focus-visible {
+    @apply outline-none ring-2 ring-brand ring-offset-2 ring-offset-bg-base;
+  }
+
+  /* Selection color hints at warmth without competing with brand CTAs. */
+  ::selection {
+    background-color: hsl(var(--brand-subtle));
+    color: hsl(var(--fg-base));
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .grain {
+    background-image:
+      radial-gradient(rgba(26, 22, 20, 0.025) 1px, transparent 1px),
+      radial-gradient(rgba(26, 22, 20, 0.02) 1px, transparent 1px);
+    background-position: 0 0, 12px 12px;
+    background-size: 24px 24px, 24px 24px;
+  }
+}

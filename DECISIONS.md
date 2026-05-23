@@ -105,3 +105,28 @@ Format:
 **Path not taken:** Live supabase-py async client (uses `realtime` + `gotrue` which pull extra deps). PostgREST over httpx is enough for service-role reads/writes.
 **Trade-off accepted:** In-memory idempotency store loses replay protection across worker restarts — fine for hackathon, swap before prod.
 **Author:** backend-engineer
+
+## 2026-05-23 — Phase 2 followup — Twilio signature URL must be the public URL
+**Context:** 8/42 whatsapp-integrator webhook tests failed with HTTP 403 (signature rejected). Root cause was a real production bug, not a test artifact: the webhook handler reconstructed the signing URL from `request.url`, which is the *internal* URL the ASGI app observes (`http://test/webhooks/twilio` under pytest, `http://api:8000/...` behind an EasyPanel/nginx/Cloudflare ingress in prod). Twilio signs the *public* URL it POSTed to (`https://api.damay.kenbuilds.tech/webhooks/twilio`); the two HMACs never match, so every webhook 403s the moment a reverse proxy sits in front of the API.
+**Decision:**
+- Added `WEBHOOK_PUBLIC_BASE_URL` to `Settings` (`apps/api/src/damay_api/config.py`) and to the router's local `WebhookSettings` dataclass (`apps/api/src/damay_api/routers/webhooks.py`). When set, the router computes `f"{base.rstrip('/')}{request.url.path}?{request.url.query}"` and feeds *that* to `verify_twilio_signature`. When unset, falls back to `str(request.url)` and emits a one-time WARNING urging the operator to set it. The fallback is dev-only convenience; production must set the env var.
+- Query string (if any) is preserved on both branches — Twilio rarely includes one on inbound but it's part of the signed string when present.
+- `.env.example` documents the var under the Twilio section with the prod URL as the default and the dev guidance inline.
+- `tests/conftest.py` sets `WEBHOOK_PUBLIC_BASE_URL=https://api.test` at import time AND passes the matching `webhook_public_base_url` into the `settings_fixture` so dependency-overridden settings agree with the test's signing constant (`WEBHOOK_URL = "https://api.test/webhooks/twilio"` in `test_webhook_twilio.py`). The test constant was correct; the production code was wrong.
+- `/dev/simulate-message` already bypasses `verify_twilio_signature` by design (gated by `dev_endpoints_enabled`) — left unchanged. Confirmed it does not call `_signing_url`.
+**Verification:** `tests/test_webhook_twilio.py` 42/42, `tests/test_simulate_message.py` included in that count, full backend suite 63/63.
+**Path not taken:** Pulling host from `X-Forwarded-Host`/`X-Forwarded-Proto` headers — works but trusts whatever the proxy sets, which is a footgun if any non-prod entry point exists. Explicit env var is auditable and unambiguous.
+**Trade-off accepted:** One additional required env var in production. Cheap.
+**Author:** whatsapp-integrator (Phase 2 followup)
+
+---
+
+## 2026-05-23 — Web demo-mode fallback when Supabase is unset
+**Context:** Phase 3 frontend ships before Supabase is provisioned. We need /dashboard and the full demo flow clickable in the build/start lifecycle with zero external services.
+**Decision:**
+- `src/lib/env.ts` exposes `isSupabaseConfigured` and `isDemoMode = !isSupabaseConfigured`.
+- `src/lib/auth.ts` `getSession()` returns a deterministic `Carmela` demo organizer when in demo mode, so the dashboard layout's redirect-to-/login still works correctly in real auth mode (no creds → /login) but the demo path is unbroken.
+- `src/lib/api.ts` falls back to seeded data (Filipino names per style guide) when the FastAPI backend at `NEXT_PUBLIC_API_URL` is unreachable. Every fallback path also returns `isLive: false` so the UI can surface an "Offline — demo data" badge.
+- `src/components/brand/ServiceWorker.tsx` only registers `/sw.js` in production builds; dev HMR is unaffected.
+**Trade-off accepted:** Demo-mode helper code stays in the production bundle (~1 KB). Worth it for hackathon resilience.
+**Author:** frontend-engineer (Phase 3)
