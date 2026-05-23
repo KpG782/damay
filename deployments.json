@@ -14,5 +14,6 @@
       "deployed_at": null
     }
   },
-  "note": "Populated by scripts/deploy_testnet.sh after Phase 1."
+  "status": "PENDING_DEPLOY",
+  "note": "Contracts built + 48 unit tests green. Live testnet deploy was not run from the build sandbox because the `stellar` CLI is not installed there. Run scripts/deploy_testnet.sh from any machine with the Stellar CLI (testnet identity is auto-bootstrapped via friendbot). Script is idempotent and will populate id/wasm_hash/deployed_at."
 }

@@ -51,3 +51,21 @@ Format:
 - Soft-delete on all tables (rejected: complicates RLS and unique constraints; status enums already model lifecycle).
 **Trade-off accepted:** Postgres-as-queue won't scale past ~50 jobs/sec, fine for hackathon and well past v1.0 traffic; revisit if Late-Night Lend ships.
 **Author:** architect
+
+## 2026-05-23 — Phase 1 contracts decisions
+**Context:** CLAUDE.md §6 specifies two Soroban contracts. Brief pinned `soroban-sdk = "22.0.0"` but allowed picking latest stable if documented.
+**Decision:**
+- Pinned `soroban-sdk = "22.0.0"` (resolves to latest 22.x patch — `22.0.11` at build time). Newer 26.x is GA but requires rustc 1.91; 22.x is the most-deployed line on hackathon judging infra and our toolchain is rustc 1.94 so 22.x compiles cleanly.
+- Reputation decay applied **at read-time**, not on every mutation: cheaper writes, deterministic reads, no background job needed. Cap at 240 decay periods (~20y) so an untouched member converges to 0 without runaway iteration.
+- Reputation `weight = 0` rejected with `ZeroWeight`: distinguishes "no-op call" (caller bug) from a real event; keeps history meaningful.
+- Reputation history bounded to 100 entries / member (FIFO prune). Storage griefing protection; older entries still observable via on-chain event log.
+- Paluwagan stores **one round per contract instance** (mirrors §6 spec "round state machine"). Backend deploys a fresh contract for each new round; same WASM, different storage. Cheaper isolation + simpler auth than a multi-round registry.
+- `distribute_payout` is **permissionless after deadline + complete contributions** — anyone can trigger, including the scheduler. Matches §6 ("permissionless after cycle deadline") and lets the backend retry without auth juggling.
+- `contribute` blocks once the cycle's payout is distributed (`AlreadyDistributed`) — keeps post-payout state immutable.
+- Live testnet deploy not executed from the build sandbox (no `stellar` CLI installed there). `deployments.json` carries `status: PENDING_DEPLOY` with explanatory note. `scripts/deploy_testnet.sh` is idempotent and will populate IDs on first run from any machine with the CLI + friendbot reachable.
+**Path not taken:**
+- Single multi-round Paluwagan contract (rejected: forces composite keys + per-round auth lookups; one-round-per-contract is the Soroban-idiomatic shape).
+- Decay-on-write (rejected: doubles write cost, complicates testing, no read-time benefit).
+- soroban-sdk 26.x (rejected: not yet broadly indexed by stellar.expert as of judging date; 22.x renders all event topics correctly in the explorer).
+**Trade-off accepted:** Per-round contract deploys cost a few XLM each in mainnet rent — fine for hackathon (testnet) and still affordable for v1 mainnet (~$0.01/round at current XLM price).
+**Author:** soroban-engineer
